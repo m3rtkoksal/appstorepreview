@@ -1,0 +1,5 @@
+__pycache__/
+macos-app/.build/
+macos-app/dist/
+macos-app/.swiftpm/
+.DS_Store

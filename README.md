@@ -15,7 +15,36 @@ Telefonlar farklı açılarla hafifçe eğilmiştir.
 | `panorama.png` | 3852 × 2778 | Bölünmemiş tam sahne |
 | `preview_sheet.png` | 1/4 ölçek | App Store boşluklarıyla hızlı önizleme |
 
-## Çalıştırma
+## macOS uygulaması (`macos-app/`)
+
+Aynı sahneyi üreten, sürükle-bırak arayüzlü native SwiftUI uygulaması.
+Python veya ek kurulum gerektirmez; macOS 13+ ve Xcode (ya da Xcode
+Command Line Tools) yeterlidir.
+
+Çift tıklanabilir `.app` oluşturmak için:
+
+```bash
+cd macos-app
+./build-app.sh
+open "dist/App Store Görselleri.app"
+```
+
+Xcode ile açmak için `macos-app/Package.swift` dosyasına çift tıklayın ve
+Run (⌘R) deyin. Hızlı denemek için `cd macos-app && swift run`.
+
+Uygulamada:
+
+- Her kare için ekran görüntüsünü kutuya sürükleyin ya da tıklayıp seçin.
+- Etiket, başlık (`*kelime*` turuncu olur), alt metin, eğim ve konum
+  kaydırıcılarını düzenleyin; önizleme anında güncellenir.
+- Kare ekle/sil (1–5 kare), yüzen kartları aç/kapat.
+- **Dışa aktar** ile bir klasör seçin; 1284 × 2778 ve 1242 × 2688 PNG'ler,
+  `panorama.png` ve `preview_sheet.png` o klasöre yazılır.
+
+Yazı tipi olarak sistemin SF Pro'su kullanılır (Inter Display'e çok yakın);
+bu yüzden font dosyası taşımaz.
+
+## Python scripti ile çalıştırma
 
 ```bash
 pip install pillow
