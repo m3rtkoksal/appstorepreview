@@ -1,8 +1,8 @@
 # App Store Ekran Görüntüsü Üretici
 
-Uygulama ekran görüntülerinden App Store için 4 karelik, sürekliliği olan
-tanıtım görselleri üretir. Tüm sahne tek bir panorama (5136 × 2778) olarak
-çizilir ve 4 kareye bölünür; böylece arka plan geçişleri, ışık ve kare
+Uygulama ekran görüntülerinden App Store için 3 karelik, sürekliliği olan
+tanıtım görselleri üretir. Tüm sahne tek bir panorama (3852 × 2778) olarak
+çizilir ve 3 kareye bölünür; böylece arka plan geçişleri, ışık ve kare
 sınırlarındaki yüzen kartlar aynı fotoğrafın ardışık kareleri gibi okunur.
 Telefonlar farklı açılarla hafifçe eğilmiştir.
 
@@ -10,9 +10,9 @@ Telefonlar farklı açılarla hafifçe eğilmiştir.
 
 | Dosya | Boyut | Açıklama |
 | --- | --- | --- |
-| `appstore_{1..4}_1284x2778.png` | 1284 × 2778 | 6.7" iPhone (birincil) |
-| `appstore_{1..4}_1242x2688.png` | 1242 × 2688 | 6.5" iPhone |
-| `panorama.png` | 5136 × 2778 | Bölünmemiş tam sahne |
+| `appstore_{1..3}_1284x2778.png` | 1284 × 2778 | 6.7" iPhone (birincil) |
+| `appstore_{1..3}_1242x2688.png` | 1242 × 2688 | 6.5" iPhone |
+| `panorama.png` | 3852 × 2778 | Bölünmemiş tam sahne |
 | `preview_sheet.png` | 1/4 ölçek | App Store boşluklarıyla hızlı önizleme |
 
 ## Çalıştırma

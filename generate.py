@@ -22,7 +22,7 @@ from PIL import Image, ImageDraw, ImageFilter, ImageFont
 # --------------------------------------------------------------------------- #
 
 W, H = 1284, 2778          # App Store 6.7" portrait
-N = 4                      # number of frames
+N = 3                      # number of frames
 PW = W * N                 # panorama width
 
 ASSETS = "assets"
@@ -74,13 +74,6 @@ FRAMES = [
         sub="Gelen teklifleri karşılaştır, en iyisini seç.",
         angle=-4, dx=-40, dy=0,
     ),
-    Frame(
-        shot="686b1d05-e335-4029-8e9c-5069f7905b03.png",
-        label="Profil",
-        headline="Her şey\n*kontrolün* altında",
-        sub="Talepler, adresler ve bildirimler tek yerde.",
-        angle=6, dx=50, dy=15,
-    ),
 ]
 
 # Floating chips that sit on the seams between frames (panorama coordinates).
@@ -96,7 +89,7 @@ class Chip:
 CHIPS = [
     Chip("status", x=W * 1, y=1460, angle=-6),
     Chip("progress", x=W * 2, y=1180, angle=4, extra={"done": 7, "total": 10}),
-    Chip("check", x=W * 3, y=1640, angle=-3),
+    Chip("check", x=W * 3 - 240, y=1720, angle=-3),
 ]
 
 
