@@ -4,42 +4,51 @@ import UniformTypeIdentifiers
 
 // MARK: - Spec
 
+enum HAlign: String, CaseIterable, Identifiable {
+    case left, center, right
+    var id: String { rawValue }
+}
+
 struct RenderFrame {
     var image: CGImage?
     var label: String
-    var headline: String          // words wrapped in *asterisks* render orange
+    var headline: String          // words wrapped in *asterisks* render in the highlight colour
     var sub: String
+    var align: HAlign
     var angle: CGFloat            // phone tilt in degrees, positive = counter-clockwise
     var dx: CGFloat
     var dy: CGFloat
 }
 
-enum ChipKind: String, CaseIterable, Identifiable {
-    case status, progress, check
-
-    var id: String { rawValue }
-
-    var title: String {
-        switch self {
-        case .status: return "Durum noktası"
-        case .progress: return "İlerleme çubuğu"
-        case .check: return "Onay işareti"
-        }
-    }
-}
-
 struct RenderChip {
-    var kind: ChipKind
     var text: String
-    var done: Int                 // progress only
-    var total: Int                // progress only
+    var symbol: String            // SF Symbol name; empty = small dot
+    var iconColor: CGColor
+    var showProgress: Bool
+    var done: Int
+    var total: Int
     var x: CGFloat                // horizontal position in frame units (1.0 = seam between frame 1 and 2)
     var y: CGFloat                // vertical position in px from the top
     var angle: CGFloat
 }
 
+struct RenderTheme {
+    var bgTop: CGColor
+    var bgBottom: CGColor
+    var glow: CGColor             // warm light at the top
+    var coolGlow: CGColor         // counterweight light at the bottom
+    var badge: CGColor
+    var badgeText: CGColor
+    var headline: CGColor
+    var highlight: CGColor
+    var sub: CGColor
+    var showGrid: Bool
+}
+
 struct RenderSpec {
     var frames: [RenderFrame]
+    var theme: RenderTheme
+    var textY: CGFloat            // top of the headline block
     var showChips: Bool
     var chips: [RenderChip]
 }
@@ -75,7 +84,7 @@ enum Fonts {
 
 // MARK: - CGContext helpers (top-left origin; the renderer flips the context once)
 
-enum TextAnchor { case topLeft, middleLeft, middleRight, middleCenter }
+enum TextAnchor { case topLeft, topCenter, topRight, middleLeft, middleRight, middleCenter }
 
 struct TextRun {
     let text: String
@@ -111,6 +120,12 @@ extension CGContext {
         let baseline: CGFloat
         switch anchor {
         case .topLeft:
+            baseline = p.y + ascent
+        case .topCenter:
+            x = p.x - width / 2
+            baseline = p.y + ascent
+        case .topRight:
+            x = p.x - width
             baseline = p.y + ascent
         case .middleLeft:
             baseline = middleBaseline
@@ -155,6 +170,43 @@ extension CGContext {
         interpolationQuality = .high
         draw(image, in: CGRect(x: 0, y: 0, width: rect.width, height: rect.height))
         restoreGState()
+    }
+
+    /// Fills `rect` with `color` through the alpha of `mask` (used for SF Symbols), upright in a flipped context.
+    func drawMaskTinted(_ mask: CGImage, in rect: CGRect, color: CGColor) {
+        saveGState()
+        translateBy(x: rect.minX, y: rect.maxY)
+        scaleBy(x: 1, y: -1)
+        let local = CGRect(x: 0, y: 0, width: rect.width, height: rect.height)
+        clip(to: local, mask: mask)
+        setFillColor(color)
+        fill(local)
+        restoreGState()
+    }
+
+    /// Draws an SF Symbol centred in `box`, scaled to fit while keeping its aspect ratio.
+    func drawSymbol(_ name: String, in box: CGRect, color: CGColor) {
+        guard let mask = Symbols.image(name, pointSize: box.height) else { return }
+        let w = CGFloat(mask.width), h = CGFloat(mask.height)
+        let scale = min(box.width / w, box.height / h)
+        let size = CGSize(width: w * scale, height: h * scale)
+        let origin = CGPoint(x: box.midX - size.width / 2, y: box.midY - size.height / 2)
+        drawMaskTinted(mask, in: CGRect(origin: origin, size: size), color: color)
+    }
+}
+
+enum Symbols {
+    static func isValid(_ name: String) -> Bool {
+        !name.isEmpty && NSImage(systemSymbolName: name, accessibilityDescription: nil) != nil
+    }
+
+    static func image(_ name: String, pointSize: CGFloat) -> CGImage? {
+        guard !name.isEmpty,
+              let base = NSImage(systemSymbolName: name, accessibilityDescription: nil),
+              let sized = base.withSymbolConfiguration(.init(pointSize: pointSize, weight: .bold))
+        else { return nil }
+        var rect = CGRect(origin: .zero, size: sized.size)
+        return sized.cgImage(forProposedRect: &rect, context: nil, hints: nil)
     }
 }
 
@@ -277,36 +329,39 @@ struct Renderer {
     }
 
     private func drawBackground(_ ctx: CGContext) {
-        let gradient = CGGradient(colorsSpace: colorSpace, colors: [Palette.navy2, Palette.navy] as CFArray, locations: [0, 1])!
+        let theme = spec.theme
+        let gradient = CGGradient(colorsSpace: colorSpace, colors: [theme.bgTop, theme.bgBottom] as CFArray, locations: [0, 1])!
         ctx.drawLinearGradient(gradient, start: .zero, end: CGPoint(x: 0, y: H), options: [])
 
-        // Blueprint grid fading out towards the bottom (echoes the app header).
-        let step: CGFloat = 96
-        ctx.setLineWidth(2)
-        var y: CGFloat = 0
-        while y < H {
-            let alpha = max(0, 22 * (1 - (y / H * 255) / 150)) / 255
-            if alpha > 0 {
-                ctx.setStrokeColor(Palette.rgb(255, 255, 255, alpha))
-                ctx.move(to: CGPoint(x: 0, y: y))
-                ctx.addLine(to: CGPoint(x: PW, y: y))
-                var x: CGFloat = 0
-                while x < PW {
-                    ctx.move(to: CGPoint(x: x, y: y))
-                    ctx.addLine(to: CGPoint(x: x, y: y + step))
-                    x += step
+        if theme.showGrid {
+            // Blueprint grid fading out towards the bottom (echoes the app header).
+            let step: CGFloat = 96
+            ctx.setLineWidth(2)
+            var y: CGFloat = 0
+            while y < H {
+                let alpha = max(0, 22 * (1 - (y / H * 255) / 150)) / 255
+                if alpha > 0 {
+                    ctx.setStrokeColor(Palette.rgb(255, 255, 255, alpha))
+                    ctx.move(to: CGPoint(x: 0, y: y))
+                    ctx.addLine(to: CGPoint(x: PW, y: y))
+                    var x: CGFloat = 0
+                    while x < PW {
+                        ctx.move(to: CGPoint(x: x, y: y))
+                        ctx.addLine(to: CGPoint(x: x, y: y + step))
+                        x += step
+                    }
+                    ctx.strokePath()
                 }
-                ctx.strokePath()
+                y += step
             }
-            y += step
         }
 
         // One big "sunrise" glow drifting across the whole panorama, cool counterweights below.
-        glow(ctx, center: CGPoint(x: PW * 0.30, y: -300), radii: CGSize(width: 2600, height: 1500), color: Palette.orange, alpha: 110 / 255)
-        glow(ctx, center: CGPoint(x: PW * 0.72, y: -200), radii: CGSize(width: 1800, height: 1100), color: Palette.orange2, alpha: 70 / 255)
-        glow(ctx, center: CGPoint(x: PW * 0.12, y: 2650), radii: CGSize(width: 1500, height: 900), color: Palette.violet, alpha: 70 / 255)
-        glow(ctx, center: CGPoint(x: PW * 0.88, y: 2500), radii: CGSize(width: 1700, height: 1000), color: Palette.blue, alpha: 60 / 255)
-        glow(ctx, center: CGPoint(x: PW * 0.5, y: 2900), radii: CGSize(width: 2200, height: 700), color: Palette.orange, alpha: 55 / 255)
+        glow(ctx, center: CGPoint(x: PW * 0.30, y: -300), radii: CGSize(width: 2600, height: 1500), color: theme.glow, alpha: 110 / 255)
+        glow(ctx, center: CGPoint(x: PW * 0.72, y: -200), radii: CGSize(width: 1800, height: 1100), color: theme.glow, alpha: 70 / 255)
+        glow(ctx, center: CGPoint(x: PW * 0.12, y: 2650), radii: CGSize(width: 1500, height: 900), color: theme.coolGlow, alpha: 70 / 255)
+        glow(ctx, center: CGPoint(x: PW * 0.88, y: 2500), radii: CGSize(width: 1700, height: 1000), color: theme.coolGlow, alpha: 60 / 255)
+        glow(ctx, center: CGPoint(x: PW * 0.5, y: 2900), radii: CGSize(width: 2200, height: 700), color: theme.glow, alpha: 55 / 255)
     }
 
     private func glow(_ ctx: CGContext, center: CGPoint, radii: CGSize, color: CGColor, alpha: CGFloat) {
@@ -326,6 +381,7 @@ struct Renderer {
     }
 
     private func drawCopy(_ ctx: CGContext) {
+        let theme = spec.theme
         let margin: CGFloat = 96
         let badgeY: CGFloat = 236
         let badgeR: CGFloat = 34
@@ -339,25 +395,42 @@ struct Renderer {
 
         for (i, frame) in spec.frames.enumerated() {
             let ox = CGFloat(i) * W
-            let bx = ox + margin + badgeR
-
-            ctx.fillCircle(center: CGPoint(x: bx, y: badgeY), radius: badgeR, color: Palette.orange)
-            ctx.drawText("\(i + 1)", font: Fonts.display(34), color: Palette.white,
-                         at: CGPoint(x: bx, y: badgeY + 1), anchor: .middleCenter)
-
             let label = frame.label.uppercased(with: Locale(identifier: "tr_TR"))
             let labelFont = Fonts.semibold(34)
-            let pillW = ctx.textWidth(label, font: labelFont) + 40
-            ctx.fillRoundedRect(CGRect(x: bx + badgeR + 20, y: badgeY - 30, width: pillW, height: 60), radius: 30, color: Palette.navy2)
-            ctx.drawText(label, font: labelFont, color: Palette.muted,
-                         at: CGPoint(x: bx + badgeR + 40, y: badgeY + 1), anchor: .middleLeft)
+            let pillW = label.isEmpty ? 0 : ctx.textWidth(label, font: labelFont) + 40
+            let groupW = badgeR * 2 + (pillW > 0 ? 20 + pillW : 0)
 
-            let yEnd = drawHeadline(ctx, x: ox + margin, y: 330, text: frame.headline, maxWidth: W - margin * 2)
-            ctx.drawText(frame.sub, font: Fonts.medium(44), color: Palette.muted, at: CGPoint(x: ox + margin, y: yEnd + 28))
+            let groupX: CGFloat
+            switch frame.align {
+            case .left: groupX = ox + margin
+            case .center: groupX = ox + (W - groupW) / 2
+            case .right: groupX = ox + W - margin - groupW
+            }
+
+            let bx = groupX + badgeR
+            ctx.fillCircle(center: CGPoint(x: bx, y: badgeY), radius: badgeR, color: theme.badge)
+            ctx.drawText("\(i + 1)", font: Fonts.display(34), color: theme.badgeText,
+                         at: CGPoint(x: bx, y: badgeY + 1), anchor: .middleCenter)
+
+            if pillW > 0 {
+                ctx.fillRoundedRect(CGRect(x: bx + badgeR + 20, y: badgeY - 30, width: pillW, height: 60), radius: 30, color: theme.bgTop)
+                ctx.drawText(label, font: labelFont, color: theme.sub,
+                             at: CGPoint(x: bx + badgeR + 40, y: badgeY + 1), anchor: .middleLeft)
+            }
+
+            let textX: CGFloat
+            let anchor: TextAnchor
+            switch frame.align {
+            case .left: textX = ox + margin; anchor = .topLeft
+            case .center: textX = ox + W / 2; anchor = .topCenter
+            case .right: textX = ox + W - margin; anchor = .topRight
+            }
+            let yEnd = drawHeadline(ctx, x: textX, y: spec.textY, text: frame.headline, maxWidth: W - margin * 2, anchor: anchor)
+            ctx.drawText(frame.sub, font: Fonts.medium(44), color: theme.sub, at: CGPoint(x: textX, y: yEnd + 28), anchor: anchor)
         }
     }
 
-    private func drawHeadline(_ ctx: CGContext, x: CGFloat, y: CGFloat, text: String, maxWidth: CGFloat) -> CGFloat {
+    private func drawHeadline(_ ctx: CGContext, x: CGFloat, y: CGFloat, text: String, maxWidth: CGFloat, anchor: TextAnchor) -> CGFloat {
         let lines = text.components(separatedBy: "\n")
         var size: CGFloat = 108
         while size > 60 {
@@ -369,19 +442,20 @@ struct Renderer {
         let font = Fonts.display(size)
         let lineHeight = floor(size * 1.08)
         for (i, line) in lines.enumerated() {
-            ctx.drawText(Renderer.parseMarkup(line), font: font, at: CGPoint(x: x, y: y + CGFloat(i) * lineHeight))
+            let runs = Renderer.parseMarkup(line, base: spec.theme.headline, highlight: spec.theme.highlight)
+            ctx.drawText(runs, font: font, at: CGPoint(x: x, y: y + CGFloat(i) * lineHeight), anchor: anchor)
         }
         return y + CGFloat(lines.count) * lineHeight
     }
 
-    static func parseMarkup(_ line: String) -> [TextRun] {
+    static func parseMarkup(_ line: String, base: CGColor, highlight: CGColor) -> [TextRun] {
         var runs: [TextRun] = []
         var buffer = ""
         var highlighted = false
         for ch in line {
             if ch == "*" {
                 if !buffer.isEmpty {
-                    runs.append(TextRun(text: buffer, color: highlighted ? Palette.orange2 : Palette.white))
+                    runs.append(TextRun(text: buffer, color: highlighted ? highlight : base))
                     buffer = ""
                 }
                 highlighted.toggle()
@@ -390,7 +464,7 @@ struct Renderer {
             }
         }
         if !buffer.isEmpty {
-            runs.append(TextRun(text: buffer, color: highlighted ? Palette.orange2 : Palette.white))
+            runs.append(TextRun(text: buffer, color: highlighted ? highlight : base))
         }
         return runs
     }
@@ -482,59 +556,72 @@ struct Renderer {
     private var chipPadY: CGFloat { 34 }
     private var chipTitleFont: NSFont { Fonts.semibold(40) }
     private var chipSmallFont: NSFont { Fonts.medium(32) }
+    private var iconDiameter: CGFloat { 56 }
+    private var dotDiameter: CGFloat { 28 }
 
     private func chipText(_ chip: RenderChip) -> String {
         let trimmed = chip.text.trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmed.isEmpty ? chip.kind.title : trimmed
+        return trimmed.isEmpty ? "Metin" : trimmed
+    }
+
+    private func hasSymbol(_ chip: RenderChip) -> Bool {
+        Symbols.isValid(chip.symbol.trimmingCharacters(in: .whitespaces))
+    }
+
+    /// Width taken by the icon (dot or symbol circle) plus its trailing gap.
+    private func iconSlot(_ chip: RenderChip) -> CGFloat {
+        if hasSymbol(chip) { return iconDiameter + 20 }
+        // Progress chips without a symbol keep the original bare title row.
+        return chip.showProgress ? 0 : dotDiameter + 20
     }
 
     private func chipSize(_ ctx: CGContext, _ chip: RenderChip) -> CGSize {
         let tw = ctx.textWidth(chipText(chip), font: chipTitleFont)
-        switch chip.kind {
-        case .status:
-            return CGSize(width: chipPadX * 2 + 28 + 20 + tw, height: chipPadY * 2 + 48)
-        case .progress:
+        let iconW = iconSlot(chip)
+        if chip.showProgress {
             let counter = ctx.textWidth("\(chip.done)/\(chip.total)", font: chipSmallFont)
-            return CGSize(width: max(520, chipPadX * 2 + tw + 40 + counter), height: 168)
-        case .check:
-            return CGSize(width: chipPadX * 2 + 56 + 20 + tw, height: chipPadY * 2 + 56)
+            return CGSize(width: max(520, chipPadX * 2 + iconW + tw + 40 + counter), height: 168)
+        }
+        let rowH = hasSymbol(chip) ? iconDiameter : 48
+        return CGSize(width: chipPadX * 2 + iconW + tw, height: chipPadY * 2 + rowH)
+    }
+
+    private func drawIcon(_ ctx: CGContext, _ chip: RenderChip, centerY: CGFloat) {
+        let symbol = chip.symbol.trimmingCharacters(in: .whitespaces)
+        if !hasSymbol(chip) && chip.showProgress { return }
+        if hasSymbol(chip) {
+            let r = iconDiameter / 2
+            let cx = chipPadX + r
+            ctx.fillCircle(center: CGPoint(x: cx, y: centerY), radius: r, color: chip.iconColor)
+            let inset: CGFloat = 13
+            ctx.drawSymbol(symbol, in: CGRect(x: cx - r + inset, y: centerY - r + inset, width: iconDiameter - inset * 2, height: iconDiameter - inset * 2), color: Palette.white)
+        } else {
+            ctx.fillCircle(center: CGPoint(x: chipPadX + dotDiameter / 2, y: centerY), radius: dotDiameter / 2, color: chip.iconColor)
         }
     }
 
     private func drawChipContent(_ ctx: CGContext, _ chip: RenderChip, size: CGSize) {
-        let cy = size.height / 2
         let text = chipText(chip)
+        let textX = chipPadX + iconSlot(chip)
 
-        switch chip.kind {
-        case .status:
-            ctx.fillCircle(center: CGPoint(x: chipPadX + 14, y: cy), radius: 14, color: Palette.green)
-            ctx.drawText(text, font: chipTitleFont, color: Palette.ink, at: CGPoint(x: chipPadX + 48, y: cy), anchor: .middleLeft)
-
-        case .progress:
+        if chip.showProgress {
+            let rowY: CGFloat = 56
+            drawIcon(ctx, chip, centerY: rowY)
+            ctx.drawText(text, font: chipTitleFont, color: Palette.ink, at: CGPoint(x: textX, y: rowY), anchor: .middleLeft)
             let total = max(1, chip.total)
             let done = max(0, min(chip.done, total))
-            ctx.drawText(text, font: chipTitleFont, color: Palette.ink, at: CGPoint(x: chipPadX, y: 56), anchor: .middleLeft)
-            ctx.drawText("\(done)/\(total)", font: chipSmallFont, color: Palette.subtle, at: CGPoint(x: size.width - chipPadX, y: 56), anchor: .middleRight)
+            ctx.drawText("\(done)/\(total)", font: chipSmallFont, color: Palette.subtle, at: CGPoint(x: size.width - chipPadX, y: rowY), anchor: .middleRight)
             let gap: CGFloat = 10
             let segW = (size.width - chipPadX * 2 - gap * CGFloat(total - 1)) / CGFloat(total)
             for i in 0..<total {
                 let x0 = chipPadX + CGFloat(i) * (segW + gap)
                 ctx.fillRoundedRect(CGRect(x: x0, y: 104, width: segW, height: 20), radius: 8,
-                                    color: i < done ? Palette.orange : Palette.track)
+                                    color: i < done ? chip.iconColor : Palette.track)
             }
-
-        case .check:
-            let cx = chipPadX + 28
-            ctx.fillCircle(center: CGPoint(x: cx, y: cy), radius: 28, color: Palette.orange)
-            ctx.setStrokeColor(Palette.white)
-            ctx.setLineWidth(6)
-            ctx.setLineCap(.round)
-            ctx.setLineJoin(.round)
-            ctx.move(to: CGPoint(x: cx - 13, y: cy + 1))
-            ctx.addLine(to: CGPoint(x: cx - 3, y: cy + 11))
-            ctx.addLine(to: CGPoint(x: cx + 15, y: cy - 9))
-            ctx.strokePath()
-            ctx.drawText(text, font: chipTitleFont, color: Palette.ink, at: CGPoint(x: chipPadX + 76, y: cy), anchor: .middleLeft)
+        } else {
+            let cy = size.height / 2
+            drawIcon(ctx, chip, centerY: cy)
+            ctx.drawText(text, font: chipTitleFont, color: Palette.ink, at: CGPoint(x: textX, y: cy), anchor: .middleLeft)
         }
     }
 }

@@ -55,9 +55,11 @@ struct ContentView: View {
     private var editor: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 14) {
+                ThemeEditor()
+
                 GroupBox {
                     VStack(alignment: .leading, spacing: 12) {
-                        Text("Tüm kareler tek bir panorama olarak çizilir; arka plan ışığı ve kartlar kareler arasında devam eder. Konum değeri kare cinsindendir: 1,0 birinci ve ikinci karenin sınırıdır.")
+                        Text("Kartlar kare sınırlarına oturabilir; konum kare cinsindendir: 1,0 birinci ve ikinci karenin sınırı, 0,5 birinci karenin ortasıdır. İkon için bir SF Symbol adı yazın; boş bırakılırsa küçük bir nokta çizilir.")
                             .font(.caption)
                             .foregroundStyle(.secondary)
 
@@ -198,6 +200,61 @@ struct ContentView: View {
     }
 }
 
+// MARK: - Theme editor
+
+struct ThemeEditor: View {
+    @EnvironmentObject private var document: Document
+
+    var body: some View {
+        GroupBox {
+            VStack(alignment: .leading, spacing: 10) {
+                Grid(alignment: .leading, horizontalSpacing: 16, verticalSpacing: 8) {
+                    GridRow {
+                        ColorPicker("Fon üst", selection: $document.theme.bgTop, supportsOpacity: false)
+                        ColorPicker("Fon alt", selection: $document.theme.bgBottom, supportsOpacity: false)
+                    }
+                    GridRow {
+                        ColorPicker("Üst ışık", selection: $document.theme.glow, supportsOpacity: false)
+                        ColorPicker("Alt ışık", selection: $document.theme.coolGlow, supportsOpacity: false)
+                    }
+                    GridRow {
+                        ColorPicker("Rozet (1-2-3)", selection: $document.theme.badge, supportsOpacity: false)
+                        ColorPicker("Rozet yazısı", selection: $document.theme.badgeText, supportsOpacity: false)
+                    }
+                    GridRow {
+                        ColorPicker("Başlık", selection: $document.theme.headline, supportsOpacity: false)
+                        ColorPicker("Vurgu (*kelime*)", selection: $document.theme.highlight, supportsOpacity: false)
+                    }
+                    GridRow {
+                        ColorPicker("Alt metin", selection: $document.theme.sub, supportsOpacity: false)
+                        Toggle("Izgara deseni", isOn: $document.theme.showGrid)
+                    }
+                }
+
+                HStack(spacing: 12) {
+                    Text("Metin yüksekliği")
+                    Slider(value: $document.textY, in: 180...900)
+                    Text("\(document.textY, specifier: "%.0f")").monospacedDigit().frame(width: 44, alignment: .trailing)
+                }
+                .font(.callout)
+                .foregroundStyle(.secondary)
+
+                HStack {
+                    Text("Vurgulu kelimenin yeri başlıkta *yıldız* işaretleriyle belirlenir; hizayı her karede ayrı seçebilirsiniz.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                    Button("Sıfırla") { document.resetTheme() }
+                        .controlSize(.small)
+                }
+            }
+            .padding(4)
+        } label: {
+            Text("Renkler ve metin").font(.headline)
+        }
+    }
+}
+
 // MARK: - Chip editor
 
 struct ChipEditor: View {
@@ -205,17 +262,11 @@ struct ChipEditor: View {
     let frameCount: Int
     let onRemove: () -> Void
 
+    private var symbolIsValid: Bool { Symbols.isValid(chip.symbol.trimmingCharacters(in: .whitespaces)) }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 8) {
-                Picker("", selection: $chip.kind) {
-                    ForEach(ChipKind.allCases) { kind in
-                        Text(kind.title).tag(kind)
-                    }
-                }
-                .labelsHidden()
-                .frame(width: 150)
-
                 TextField("Kart metni", text: $chip.text)
                     .textFieldStyle(.roundedBorder)
 
@@ -228,16 +279,57 @@ struct ChipEditor: View {
                 .help("Kartı sil")
             }
 
-            if chip.kind == .progress {
-                HStack(spacing: 16) {
+            HStack(spacing: 8) {
+                ZStack {
+                    Circle().fill(chip.iconColor)
+                    if symbolIsValid {
+                        Image(systemName: chip.symbol.trimmingCharacters(in: .whitespaces))
+                            .font(.system(size: 12, weight: .bold))
+                            .foregroundStyle(.white)
+                    } else {
+                        Circle().fill(chip.iconColor).frame(width: 10, height: 10)
+                            .overlay(Circle().stroke(.white, lineWidth: 1.5))
+                    }
+                }
+                .frame(width: 24, height: 24)
+
+                TextField("SF Symbol adı (boş = nokta)", text: $chip.symbol)
+                    .textFieldStyle(.roundedBorder)
+                    .foregroundStyle(chip.symbol.isEmpty || symbolIsValid ? Color.primary : Color.red)
+
+                Menu {
+                    Button("Nokta (ikon yok)") { chip.symbol = "" }
+                    Divider()
+                    ForEach(ChipSpec.suggestedSymbols, id: \.self) { name in
+                        Button {
+                            chip.symbol = name
+                        } label: {
+                            Label(name, systemImage: name)
+                        }
+                    }
+                } label: {
+                    Image(systemName: "chevron.down.circle")
+                }
+                .menuStyle(.borderlessButton)
+                .frame(width: 24)
+                .help("Hazır ikonlardan seç")
+
+                ColorPicker("", selection: $chip.iconColor, supportsOpacity: false)
+                    .labelsHidden()
+                    .help("İkon rengi")
+            }
+
+            HStack(spacing: 16) {
+                Toggle("İlerleme çubuğu", isOn: $chip.showProgress)
+                if chip.showProgress {
                     Stepper("Dolu: \(chip.done)", value: $chip.done, in: 0...chip.total)
                     Stepper("Toplam: \(chip.total)", value: $chip.total, in: 1...20)
                         .onChange(of: chip.total) { newTotal in
                             if chip.done > newTotal { chip.done = newTotal }
                         }
                 }
-                .font(.callout)
             }
+            .font(.callout)
 
             Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 4) {
                 GridRow {
@@ -286,6 +378,13 @@ struct FrameEditor: View {
                         TextField("Başlık (*kelime* turuncu olur)", text: $frame.headline, axis: .vertical)
                             .lineLimit(2...3)
                         TextField("Alt metin", text: $frame.sub)
+                        Picker("Hiza", selection: $frame.align) {
+                            Text("Sol").tag(HAlign.left)
+                            Text("Orta").tag(HAlign.center)
+                            Text("Sağ").tag(HAlign.right)
+                        }
+                        .pickerStyle(.segmented)
+                        .labelsHidden()
                     }
                     .textFieldStyle(.roundedBorder)
                 }
