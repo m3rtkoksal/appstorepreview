@@ -14,11 +14,34 @@ struct RenderFrame {
     var dy: CGFloat
 }
 
+enum ChipKind: String, CaseIterable, Identifiable {
+    case status, progress, check
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .status: return "Durum noktası"
+        case .progress: return "İlerleme çubuğu"
+        case .check: return "Onay işareti"
+        }
+    }
+}
+
+struct RenderChip {
+    var kind: ChipKind
+    var text: String
+    var done: Int                 // progress only
+    var total: Int                // progress only
+    var x: CGFloat                // horizontal position in frame units (1.0 = seam between frame 1 and 2)
+    var y: CGFloat                // vertical position in px from the top
+    var angle: CGFloat
+}
+
 struct RenderSpec {
     var frames: [RenderFrame]
     var showChips: Bool
-    var offersDone: Int
-    var offersTotal: Int = 10
+    var chips: [RenderChip]
 }
 
 // MARK: - Palette / fonts
@@ -436,33 +459,12 @@ struct Renderer {
 
     // MARK: Chips
 
-    private enum ChipKind { case status, progress, check }
-
-    private struct Chip {
-        let kind: ChipKind
-        let center: CGPoint
-        let angle: CGFloat
-    }
-
-    private func chipPlan() -> [Chip] {
-        var chips: [Chip] = []
-        // Alternate chips on every seam so they straddle two frames.
-        for seam in 1..<count {
-            if (seam - 1) % 2 == 0 {
-                chips.append(Chip(kind: .status, center: CGPoint(x: W * CGFloat(seam), y: 1460), angle: -6))
-            } else {
-                chips.append(Chip(kind: .progress, center: CGPoint(x: W * CGFloat(seam), y: 1180), angle: 4))
-            }
-        }
-        chips.append(Chip(kind: .check, center: CGPoint(x: PW - 240, y: 1720), angle: -3))
-        return chips
-    }
-
     private func drawChips(_ ctx: CGContext) {
-        for chip in chipPlan() {
-            let size = chipSize(ctx, chip.kind)
+        for chip in spec.chips {
+            let size = chipSize(ctx, chip)
+            let center = CGPoint(x: chip.x * W, y: chip.y)
             ctx.saveGState()
-            ctx.translateBy(x: chip.center.x, y: chip.center.y)
+            ctx.translateBy(x: center.x, y: center.y)
             ctx.rotate(by: -chip.angle * .pi / 180)
             ctx.translateBy(x: -size.width / 2, y: -size.height / 2)
 
@@ -471,43 +473,48 @@ struct Renderer {
             ctx.fillRoundedRect(CGRect(origin: .zero, size: size), radius: 40, color: Palette.white)
             ctx.restoreGState()
 
-            drawChipContent(ctx, chip.kind, size: size)
+            drawChipContent(ctx, chip, size: size)
             ctx.restoreGState()
         }
     }
 
     private var chipPadX: CGFloat { 40 }
     private var chipPadY: CGFloat { 34 }
+    private var chipTitleFont: NSFont { Fonts.semibold(40) }
+    private var chipSmallFont: NSFont { Fonts.medium(32) }
 
-    private func chipSize(_ ctx: CGContext, _ kind: ChipKind) -> CGSize {
-        let titleFont = Fonts.semibold(40)
-        switch kind {
+    private func chipText(_ chip: RenderChip) -> String {
+        let trimmed = chip.text.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? chip.kind.title : trimmed
+    }
+
+    private func chipSize(_ ctx: CGContext, _ chip: RenderChip) -> CGSize {
+        let tw = ctx.textWidth(chipText(chip), font: chipTitleFont)
+        switch chip.kind {
         case .status:
-            let tw = ctx.textWidth("Teklif toplanıyor", font: titleFont)
             return CGSize(width: chipPadX * 2 + 28 + 20 + tw, height: chipPadY * 2 + 48)
         case .progress:
-            return CGSize(width: 520, height: 168)
+            let counter = ctx.textWidth("\(chip.done)/\(chip.total)", font: chipSmallFont)
+            return CGSize(width: max(520, chipPadX * 2 + tw + 40 + counter), height: 168)
         case .check:
-            let tw = ctx.textWidth("Güvenle seç", font: titleFont)
             return CGSize(width: chipPadX * 2 + 56 + 20 + tw, height: chipPadY * 2 + 56)
         }
     }
 
-    private func drawChipContent(_ ctx: CGContext, _ kind: ChipKind, size: CGSize) {
-        let titleFont = Fonts.semibold(40)
-        let smallFont = Fonts.medium(32)
+    private func drawChipContent(_ ctx: CGContext, _ chip: RenderChip, size: CGSize) {
         let cy = size.height / 2
+        let text = chipText(chip)
 
-        switch kind {
+        switch chip.kind {
         case .status:
             ctx.fillCircle(center: CGPoint(x: chipPadX + 14, y: cy), radius: 14, color: Palette.green)
-            ctx.drawText("Teklif toplanıyor", font: titleFont, color: Palette.ink, at: CGPoint(x: chipPadX + 48, y: cy), anchor: .middleLeft)
+            ctx.drawText(text, font: chipTitleFont, color: Palette.ink, at: CGPoint(x: chipPadX + 48, y: cy), anchor: .middleLeft)
 
         case .progress:
-            let done = max(0, min(spec.offersDone, spec.offersTotal))
-            let total = max(1, spec.offersTotal)
-            ctx.drawText("Gelen teklifler", font: titleFont, color: Palette.ink, at: CGPoint(x: chipPadX, y: 56), anchor: .middleLeft)
-            ctx.drawText("\(done)/\(total)", font: smallFont, color: Palette.subtle, at: CGPoint(x: size.width - chipPadX, y: 56), anchor: .middleRight)
+            let total = max(1, chip.total)
+            let done = max(0, min(chip.done, total))
+            ctx.drawText(text, font: chipTitleFont, color: Palette.ink, at: CGPoint(x: chipPadX, y: 56), anchor: .middleLeft)
+            ctx.drawText("\(done)/\(total)", font: chipSmallFont, color: Palette.subtle, at: CGPoint(x: size.width - chipPadX, y: 56), anchor: .middleRight)
             let gap: CGFloat = 10
             let segW = (size.width - chipPadX * 2 - gap * CGFloat(total - 1)) / CGFloat(total)
             for i in 0..<total {
@@ -527,7 +534,7 @@ struct Renderer {
             ctx.addLine(to: CGPoint(x: cx - 3, y: cy + 11))
             ctx.addLine(to: CGPoint(x: cx + 15, y: cy - 9))
             ctx.strokePath()
-            ctx.drawText("Güvenle seç", font: titleFont, color: Palette.ink, at: CGPoint(x: chipPadX + 76, y: cy), anchor: .middleLeft)
+            ctx.drawText(text, font: chipTitleFont, color: Palette.ink, at: CGPoint(x: chipPadX + 76, y: cy), anchor: .middleLeft)
         }
     }
 }

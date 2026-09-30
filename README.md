@@ -37,7 +37,10 @@ Uygulamada:
 - Her kare için ekran görüntüsünü kutuya sürükleyin ya da tıklayıp seçin.
 - Etiket, başlık (`*kelime*` turuncu olur), alt metin, eğim ve konum
   kaydırıcılarını düzenleyin; önizleme anında güncellenir.
-- Kare ekle/sil (1–5 kare), yüzen kartları aç/kapat.
+- Kare ekle/sil (1–5 kare).
+- Yüzen kartlar: her kartın türünü (durum noktası, ilerleme çubuğu, onay
+  işareti), metnini, konumunu ve eğimini düzenleyin; kart ekleyin/silin veya
+  hepsini kapatın. Konum kare cinsindendir: 1,0 = 1. ve 2. karenin sınırı.
 - **Dışa aktar** ile bir klasör seçin; 1284 × 2778 ve 1242 × 2688 PNG'ler,
   `panorama.png` ve `preview_sheet.png` o klasöre yazılır.
 

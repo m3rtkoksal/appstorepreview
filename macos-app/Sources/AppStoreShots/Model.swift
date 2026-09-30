@@ -36,13 +36,40 @@ struct FrameSpec: Identifiable {
     }
 }
 
+struct ChipSpec: Identifiable {
+    let id = UUID()
+    var kind: ChipKind
+    var text: String
+    var done: Int = 7
+    var total: Int = 10
+    var x: Double          // frame units: 1.0 = seam between frame 1 and 2, 0.5 = middle of frame 1
+    var y: Double          // px from top (0...2778)
+    var angle: Double
+
+    static let defaults: [ChipSpec] = [
+        ChipSpec(kind: .status, text: "Teklif toplanıyor", x: 1.0, y: 1460, angle: -6),
+        ChipSpec(kind: .progress, text: "Gelen teklifler", done: 7, total: 10, x: 2.0, y: 1180, angle: 4),
+        ChipSpec(kind: .check, text: "Güvenle seç", x: 2.81, y: 1720, angle: -3),
+    ]
+
+    static func blank(frameCount: Int, index: Int) -> ChipSpec {
+        let kinds = ChipKind.allCases
+        let kind = kinds[index % kinds.count]
+        // Put new chips on the first seam (or mid-frame for a single frame) and stagger them vertically.
+        let x = frameCount > 1 ? 1.0 : 0.5
+        let y = 1000 + Double(index % 4) * 320
+        return ChipSpec(kind: kind, text: "", x: x, y: y, angle: index % 2 == 0 ? -5 : 4)
+    }
+}
+
 @MainActor
 final class Document: ObservableObject {
     static let maxFrames = 5
+    static let maxChips = 6
 
     @Published var frames: [FrameSpec] = FrameSpec.defaults
     @Published var showChips = true
-    @Published var offersDone = 7
+    @Published var chips: [ChipSpec] = ChipSpec.defaults
 
     var renderSpec: RenderSpec {
         RenderSpec(
@@ -51,8 +78,29 @@ final class Document: ObservableObject {
                             angle: CGFloat($0.angle), dx: CGFloat($0.dx), dy: CGFloat($0.dy))
             },
             showChips: showChips,
-            offersDone: offersDone
+            chips: chips.map {
+                RenderChip(kind: $0.kind, text: $0.text, done: $0.done, total: $0.total,
+                           x: CGFloat($0.x), y: CGFloat($0.y), angle: CGFloat($0.angle))
+            }
         )
+    }
+
+    func chipBinding(for id: ChipSpec.ID) -> Binding<ChipSpec> {
+        Binding(
+            get: { self.chips.first { $0.id == id } ?? ChipSpec.blank(frameCount: 1, index: 0) },
+            set: { updated in
+                if let i = self.chips.firstIndex(where: { $0.id == id }) { self.chips[i] = updated }
+            }
+        )
+    }
+
+    func addChip() {
+        guard chips.count < Document.maxChips else { return }
+        chips.append(ChipSpec.blank(frameCount: frames.count, index: chips.count))
+    }
+
+    func removeChip(id: ChipSpec.ID) {
+        chips.removeAll { $0.id == id }
     }
 
     func binding(for id: FrameSpec.ID) -> Binding<FrameSpec> {

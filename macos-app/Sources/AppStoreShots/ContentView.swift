@@ -55,16 +55,32 @@ struct ContentView: View {
     private var editor: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 14) {
-                GroupBox("Genel") {
-                    VStack(alignment: .leading, spacing: 10) {
-                        Toggle("Kare sınırlarındaki yüzen kartları göster", isOn: $document.showChips)
-                        Stepper("Gelen teklif sayısı: \(document.offersDone)/10", value: $document.offersDone, in: 0...10)
-                            .disabled(!document.showChips)
-                        Text("Tüm kareler tek bir panorama olarak çizilir; arka plan ışığı ve kartlar kareler arasında devam eder.")
+                GroupBox {
+                    VStack(alignment: .leading, spacing: 12) {
+                        Text("Tüm kareler tek bir panorama olarak çizilir; arka plan ışığı ve kartlar kareler arasında devam eder. Konum değeri kare cinsindendir: 1,0 birinci ve ikinci karenin sınırıdır.")
                             .font(.caption)
                             .foregroundStyle(.secondary)
+
+                        if document.showChips {
+                            ForEach(document.chips) { chip in
+                                ChipEditor(
+                                    chip: document.chipBinding(for: chip.id),
+                                    frameCount: document.frames.count,
+                                    onRemove: { document.removeChip(id: chip.id) }
+                                )
+                            }
+                            Button {
+                                document.addChip()
+                            } label: {
+                                Label("Kart ekle", systemImage: "plus")
+                            }
+                            .disabled(document.chips.count >= Document.maxChips)
+                        }
                     }
                     .padding(4)
+                } label: {
+                    Toggle("Yüzen kartlar", isOn: $document.showChips)
+                        .font(.headline)
                 }
 
                 ForEach(document.frames) { frame in
@@ -179,6 +195,72 @@ struct ContentView: View {
                 showResult = true
             }
         }
+    }
+}
+
+// MARK: - Chip editor
+
+struct ChipEditor: View {
+    @Binding var chip: ChipSpec
+    let frameCount: Int
+    let onRemove: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 8) {
+                Picker("", selection: $chip.kind) {
+                    ForEach(ChipKind.allCases) { kind in
+                        Text(kind.title).tag(kind)
+                    }
+                }
+                .labelsHidden()
+                .frame(width: 150)
+
+                TextField("Kart metni", text: $chip.text)
+                    .textFieldStyle(.roundedBorder)
+
+                Button(role: .destructive) {
+                    onRemove()
+                } label: {
+                    Image(systemName: "trash")
+                }
+                .buttonStyle(.borderless)
+                .help("Kartı sil")
+            }
+
+            if chip.kind == .progress {
+                HStack(spacing: 16) {
+                    Stepper("Dolu: \(chip.done)", value: $chip.done, in: 0...chip.total)
+                    Stepper("Toplam: \(chip.total)", value: $chip.total, in: 1...20)
+                        .onChange(of: chip.total) { newTotal in
+                            if chip.done > newTotal { chip.done = newTotal }
+                        }
+                }
+                .font(.callout)
+            }
+
+            Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 4) {
+                GridRow {
+                    Text("Konum").frame(width: 48, alignment: .leading)
+                    Slider(value: $chip.x, in: 0...Double(frameCount))
+                    Text("\(chip.x, specifier: "%.2f")").monospacedDigit().frame(width: 44, alignment: .trailing)
+                }
+                GridRow {
+                    Text("Dikey").frame(width: 48, alignment: .leading)
+                    Slider(value: $chip.y, in: 300...2600)
+                    Text("\(chip.y, specifier: "%.0f")").monospacedDigit().frame(width: 44, alignment: .trailing)
+                }
+                GridRow {
+                    Text("Eğim").frame(width: 48, alignment: .leading)
+                    Slider(value: $chip.angle, in: -12...12)
+                    Text("\(chip.angle, specifier: "%.0f")°").monospacedDigit().frame(width: 44, alignment: .trailing)
+                }
+            }
+            .font(.callout)
+            .foregroundStyle(.secondary)
+        }
+        .padding(8)
+        .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 8))
     }
 }
 
